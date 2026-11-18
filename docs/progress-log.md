@@ -4,8 +4,8 @@ Update this file at the end of each task.
 
 ## Current status
 - Current phase: Phase 1 (Auth and workspaces)
-- Last completed task: T1.2 (signup + login with BCrypt and JWT, fully tested and pushed)
-- Next task: T1.3 (workspace creation, invites, membership with roles)
+- Last completed task: T1.3 (workspace creation, invites, membership with roles)
+- Next task: T1.4 (Integration tests for auth using Testcontainers)
 
 ## Decisions made
 - Project: Slack-like team collaboration platform with AI features
@@ -18,6 +18,10 @@ Update this file at the end of each task.
 - JWT claims: sub = user id (string), email, iat, exp. Decoded in UserController via @AuthenticationPrincipal Jwt
 - UserController lives in the user package; UserResponse record lives in the auth package (shared by signup, login, /me)
 - Test script lives at scripts/test-auth.ps1; run from repo root with: powershell -ExecutionPolicy Bypass -File .\scripts\test-auth.ps1
+- V2 migration: updated workspace_members role constraint to uppercase ('OWNER', 'ADMIN', 'MEMBER'); created workspace_invites table with token, expires_at, accepted_at.
+- Workspace roles: OWNER, ADMIN, MEMBER. Permissions: OWNER can invite ADMIN/MEMBER; ADMIN can invite only MEMBER; MEMBER cannot invite; nobody can invite as OWNER. Non-members querying members or inviting receive 404 to prevent workspace ID probing.
+- SecureRandom 32-byte URL-safe Base64 token generation with 7-day expiration for workspace invites.
+- Test script lives at scripts/test-workspaces.ps1; covers workspace creation, non-member 404, invite creation, wrong email 403, correct email acceptance, member invite prohibition 403, and members list validation.
 - Repo: github.com/CharanK-01/Team-Collaboration-Platform
 
 ## Open problems
@@ -27,3 +31,4 @@ Update this file at the end of each task.
 - 2026-11-16: Phase 0 done (T0.1 to T0.5); T1.1 schema migration done; T1.2A signup done and pushed
 - 2026-11-17: T1.2B login and JWT code written; fixed a duplicate UserController class; paused because Docker was not running. Switching to Antigravity to continue.
 - 2026-11-18: T1.2B completed. UserController.java was missing from the earlier commit; created it. All 5 auth tests passed: login returns token, /api/users/me works with valid token (200 + correct email), no token → 401, wrong password → 401, tampered JWT payload → 401.
+- 2026-11-18: T1.3 completed. Added Flyway V2 migration, workspace domain entities, repositories, services, controllers, and scripts/test-workspaces.ps1. All 7 tests passed (workspace creation, non-member 404, invite generation, wrong email acceptance 403, right email acceptance 200, member invite restriction 403, members list role verification).

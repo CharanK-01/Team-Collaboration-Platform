@@ -10,6 +10,7 @@ try {
         -Method POST `
         -ContentType "application/json" `
         -Body '{"email":"charan@example.com","password":"password123"}' `
+        -UseBasicParsing `
         -ErrorAction Stop
     Write-Host "Status: $($r1.StatusCode)"
     Write-Host "Body: $($r1.Content)"
@@ -35,6 +36,7 @@ try {
     $r2 = Invoke-WebRequest -Uri http://localhost:8080/api/users/me `
         -Method GET `
         -Headers @{ Authorization = "Bearer $token" } `
+        -UseBasicParsing `
         -ErrorAction Stop
     Write-Host "Status: $($r2.StatusCode)"
     Write-Host "Body: $($r2.Content)"
@@ -57,6 +59,7 @@ Write-Host "=== TEST 3: GET /api/users/me with NO token (expect 401) ===" -Foreg
 try {
     $r3 = Invoke-WebRequest -Uri http://localhost:8080/api/users/me `
         -Method GET `
+        -UseBasicParsing `
         -ErrorAction Stop
     Write-Host "UNEXPECTED SUCCESS - Status: $($r3.StatusCode)" -ForegroundColor Red
     exit 1
@@ -79,6 +82,7 @@ try {
         -Method POST `
         -ContentType "application/json" `
         -Body '{"email":"charan@example.com","password":"wrongpassword"}' `
+        -UseBasicParsing `
         -ErrorAction Stop
     Write-Host "UNEXPECTED SUCCESS - Status: $($r4.StatusCode)" -ForegroundColor Red
     exit 1
@@ -115,6 +119,7 @@ try {
     $r5 = Invoke-WebRequest -Uri http://localhost:8080/api/users/me `
         -Method GET `
         -Headers @{ Authorization = "Bearer $tamperedToken" } `
+        -UseBasicParsing `
         -ErrorAction Stop
     Write-Host "UNEXPECTED SUCCESS - Status: $($r5.StatusCode)" -ForegroundColor Red
     exit 1
