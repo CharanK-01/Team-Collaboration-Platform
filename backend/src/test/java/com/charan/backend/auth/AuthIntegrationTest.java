@@ -164,8 +164,8 @@ class AuthIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /api/auth/login - Wrong password and unknown email both return 401 with the exact same error message")
-    void login_wrongPasswordAndUnknownEmail_bothReturn401WithSameMessage() {
+    @DisplayName("POST /api/auth/login - Wrong password and unknown email both return 401 with identical error shape (status, error, path)")
+    void login_wrongPasswordAndUnknownEmail_bothReturnIdentical401ErrorShape() {
         // Register user for wrong-password test
         restTemplate.postForEntity(
                 "/api/auth/signup",
