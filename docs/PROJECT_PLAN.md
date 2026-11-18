@@ -147,7 +147,7 @@ PostgreSQL (results)
 
 ### Phase 1: Auth and workspaces (Week 1)
 - [x] T1.1 Design the schema on paper; write Flyway migrations.
-- [ ] T1.2 Signup and login with BCrypt and JWT.
+- [x] T1.2 Signup and login with BCrypt and JWT.
 - [ ] T1.3 Workspace creation, invites, membership with roles.
 - [ ] T1.4 Integration tests for auth using Testcontainers.
 
