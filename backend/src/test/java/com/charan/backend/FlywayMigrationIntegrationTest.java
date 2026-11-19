@@ -14,12 +14,12 @@ class FlywayMigrationIntegrationTest extends BaseIntegrationTest {
     private Flyway flyway;
 
     @Test
-    @DisplayName("Verify that Flyway migrations V1 and V2 executed successfully on the throwaway container")
-    void flywayMigrationsV1AndV2RanSuccessfully() {
+    @DisplayName("Verify that Flyway migrations V1, V2, and V3 executed successfully on the throwaway container")
+    void flywayMigrationsV1AndV2AndV3RanSuccessfully() {
         MigrationInfo[] appliedMigrations = flyway.info().applied();
 
-        // Must have applied exactly 2 migrations: V1 and V2
-        assertThat(appliedMigrations).hasSize(2);
+        // Must have applied exactly 3 migrations: V1, V2, and V3
+        assertThat(appliedMigrations).hasSize(3);
 
         // V1 verification
         assertThat(appliedMigrations[0].getVersion().getVersion()).isEqualTo("1");
@@ -31,9 +31,14 @@ class FlywayMigrationIntegrationTest extends BaseIntegrationTest {
         assertThat(appliedMigrations[1].getDescription()).isEqualTo("workspace roles and invites");
         assertThat(appliedMigrations[1].getState().isApplied()).isTrue();
 
-        // Current schema version must be 2
+        // V3 verification
+        assertThat(appliedMigrations[2].getVersion().getVersion()).isEqualTo("3");
+        assertThat(appliedMigrations[2].getDescription()).isEqualTo("channels and dms");
+        assertThat(appliedMigrations[2].getState().isApplied()).isTrue();
+
+        // Current schema version must be 3
         MigrationInfo current = flyway.info().current();
         assertThat(current).isNotNull();
-        assertThat(current.getVersion().getVersion()).isEqualTo("2");
+        assertThat(current.getVersion().getVersion()).isEqualTo("3");
     }
 }
