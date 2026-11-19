@@ -27,6 +27,13 @@ Update this file at the end of each task.
 ## Open problems
 - Set a real `JWT_SECRET` before the live demo (T6.4)
 
+## Known limitations
+- Pending-invite check is check-then-insert, so two simultaneous invites to the same email can both pass (fix idea: a partial unique index on `(workspace_id, email) WHERE accepted_at IS NULL` plus catching the data integrity violation as 409 Conflict).
+- Accepting the same invite from two simultaneous requests can return a 500 instead of 409 (no duplicate membership results because of the composite primary key `(workspace_id, user_id)`, but unhandled database constraint exceptions bubble up as 500).
+- Inviting with role OWNER returns 403 Forbidden; 400 Bad Request would be more accurate because OWNER is an invalid client payload for an invite, not a valid request blocked by authorization.
+- JWT_SECRET must be set as an environment variable for the live demo to override the dev default.
+- Integration tests share one static PostgreSQL Testcontainers instance across the test run and clean tables in `@BeforeEach` to keep test run times fast without state leakage.
+
 ## Session history
 - 2026-11-16: Phase 0 done (T0.1 to T0.5); T1.1 schema migration done; T1.2A signup done and pushed
 - 2026-11-17: T1.2B login and JWT code written; fixed a duplicate UserController class; paused because Docker was not running. Switching to Antigravity to continue.
