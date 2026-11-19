@@ -35,6 +35,9 @@ Update this file at the end of each task.
 - Inviting with role OWNER returns 403 Forbidden; 400 Bad Request would be more accurate because OWNER is an invalid client payload for an invite, not a valid request blocked by authorization.
 - JWT_SECRET must be set as an environment variable for the live demo to override the dev default.
 - Integration tests share one static PostgreSQL Testcontainers instance across the test run and clean tables in `@BeforeEach` to keep test run times fast without state leakage.
+- Creating two channels with the same name at the same moment can return 500 instead of 409. createChannel checks whether the name exists and then inserts. The unique index on (workspace_id, lower(name)) prevents the duplicate row, but the violation is not caught. Fix idea: catch DataIntegrityViolationException and return 409.
+- POST /channels/{id}/members returns 403 when the caller is not in a private channel, while join returns 404 for the same case. This lets a workspace member detect that a private channel exists. Fix idea: return 404 for private channels the caller is not in.
+- DM creation is race-safe by design (INSERT ... ON CONFLICT DO NOTHING plus a unique constraint on workspace_id and dm_key), but the tests only call it sequentially. There is no concurrent test.
 
 ## Session history
 - 2026-11-16: Phase 0 done (T0.1 to T0.5); T1.1 schema migration done; T1.2A signup done and pushed
