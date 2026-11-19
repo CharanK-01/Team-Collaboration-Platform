@@ -152,7 +152,7 @@ PostgreSQL (results)
 - [x] T1.4 Integration tests for auth using Testcontainers.
 
 ### Phase 2: Channels and messaging over REST (Week 2)
-- [ ] T2.1 Channels: create, join, list (public and private), DMs.
+- [x] T2.1 Channels: create, join, list (public and private), DMs.
 - [ ] T2.2 Messages: send, fetch history with cursor pagination.
 - [ ] T2.3 Permission checks (only members read or post).
 - [ ] T2.4 Tests for each endpoint. Done when a full chat works through REST alone.

@@ -4,8 +4,8 @@ Update this file at the end of each task.
 
 ## Current status
 - Current phase: Phase 2 (Channels and messaging over REST)
-- Last completed task: T1.4 (Integration tests for auth and workspaces using Testcontainers)
-- Next task: T2.1 (Channels: create, join, list (public and private), DMs)
+- Last completed task: T2.1 (Channels: create, join, list public and private, DMs)
+- Next task: T2.2 (Messages: send, fetch history with cursor pagination)
 
 ## Decisions made
 - Project: Slack-like team collaboration platform with AI features
@@ -22,6 +22,8 @@ Update this file at the end of each task.
 - Workspace roles: OWNER, ADMIN, MEMBER. Permissions: OWNER can invite ADMIN/MEMBER; ADMIN can invite only MEMBER; MEMBER cannot invite; nobody can invite as OWNER. Non-members querying members or inviting receive 404 to prevent workspace ID probing.
 - SecureRandom 32-byte URL-safe Base64 token generation with 7-day expiration for workspace invites.
 - Test script lives at scripts/test-workspaces.ps1; covers workspace creation, non-member 404, invite creation, wrong email 403, correct email acceptance, member invite prohibition 403, and members list validation.
+- V3 migration: standardized channels type constraint to uppercase ('PUBLIC', 'PRIVATE', 'DM'); added `dm_key VARCHAR(50)` with `UNIQUE (workspace_id, dm_key)` for canonical user pair unique constraint (`minId:maxId`); added case-insensitive unique index `idx_channels_workspace_lower_name` on `(workspace_id, lower(name))`.
+- Channel rules: names validated with regex `^[a-z0-9-]+$` (1-80 chars) and unique per workspace (case-insensitive); creator auto-joined; non-members get 403 (or 404 if workspace doesn't exist); joining private channel when not already a member returns 404 to avoid leaking existence; DMs use canonical pair key `minId:maxId` with `ON CONFLICT DO NOTHING` for race-free concurrency.
 - Repo: github.com/CharanK-01/Team-Collaboration-Platform
 
 ## Open problems
@@ -40,3 +42,4 @@ Update this file at the end of each task.
 - 2026-11-18: T1.2B completed. UserController.java was missing from the earlier commit; created it. All 5 auth tests passed: login returns token, /api/users/me works with valid token (200 + correct email), no token → 401, wrong password → 401, tampered JWT payload → 401.
 - 2026-11-18: T1.3 completed. Added Flyway V2 migration, workspace domain entities, repositories, services, controllers, and scripts/test-workspaces.ps1. All 16 comprehensive tests passed: workspace creation, non-member 404, invite role OWNER rejection (403), OWNER invites ADMIN (201), wrong email acceptance (403), right email acceptance (200), duplicate acceptance rejection (400), duplicate pending invite conflict (409), member re-invite conflict (409), MEMBER invite restriction (403), ADMIN invites ADMIN restriction (403), ADMIN invites MEMBER success (201), members list verification, and workspace isolation filtering.
 - 2026-11-19: T1.4 completed. Configured Testcontainers 2.0.5 with Spring Boot 4.1.2 managed dependencies and throwaway PostgreSQL 16 container (`pgvector/pgvector:pg16`). Created `BaseIntegrationTest`, `FlywayMigrationIntegrationTest` (2/2), `AuthIntegrationTest` (9/9), and `WorkspaceIntegrationTest` (18/18). All 29 integration tests pass via `.\mvnw test`.
+- 2026-11-19: T2.1 completed. Added Flyway V3 migration (`V3__channels_and_dms.sql`), channel and DM domain entities, repositories, service, and controllers (`ChannelController`, `DmController`). Created `ChannelIntegrationTest` with 18 comprehensive tests covering public/private creation, validation, case-insensitive uniqueness, visibility scoping, idempotent joins, private channel existence hiding (404), member invitations, and race-free DM find-or-create using canonical pair keys. All 47 integration tests pass via `.\mvnw test`.
