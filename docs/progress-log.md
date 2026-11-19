@@ -3,9 +3,9 @@
 Update this file at the end of each task.
 
 ## Current status
-- Current phase: Phase 1 (Auth and workspaces)
-- Last completed task: T1.3 (workspace creation, invites, membership with roles)
-- Next task: T1.4 (Integration tests for auth using Testcontainers)
+- Current phase: Phase 2 (Channels and messaging over REST)
+- Last completed task: T1.4 (Integration tests for auth and workspaces using Testcontainers)
+- Next task: T2.1 (Channels: create, join, list (public and private), DMs)
 
 ## Decisions made
 - Project: Slack-like team collaboration platform with AI features
@@ -32,3 +32,4 @@ Update this file at the end of each task.
 - 2026-11-17: T1.2B login and JWT code written; fixed a duplicate UserController class; paused because Docker was not running. Switching to Antigravity to continue.
 - 2026-11-18: T1.2B completed. UserController.java was missing from the earlier commit; created it. All 5 auth tests passed: login returns token, /api/users/me works with valid token (200 + correct email), no token → 401, wrong password → 401, tampered JWT payload → 401.
 - 2026-11-18: T1.3 completed. Added Flyway V2 migration, workspace domain entities, repositories, services, controllers, and scripts/test-workspaces.ps1. All 16 comprehensive tests passed: workspace creation, non-member 404, invite role OWNER rejection (403), OWNER invites ADMIN (201), wrong email acceptance (403), right email acceptance (200), duplicate acceptance rejection (400), duplicate pending invite conflict (409), member re-invite conflict (409), MEMBER invite restriction (403), ADMIN invites ADMIN restriction (403), ADMIN invites MEMBER success (201), members list verification, and workspace isolation filtering.
+- 2026-11-19: T1.4 completed. Configured Testcontainers 2.0.5 with Spring Boot 4.1.2 managed dependencies and throwaway PostgreSQL 16 container (`pgvector/pgvector:pg16`). Created `BaseIntegrationTest`, `FlywayMigrationIntegrationTest` (2/2), `AuthIntegrationTest` (9/9), and `WorkspaceIntegrationTest` (18/18). All 29 integration tests pass via `.\mvnw test`.

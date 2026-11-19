@@ -149,7 +149,7 @@ PostgreSQL (results)
 - [x] T1.1 Design the schema on paper; write Flyway migrations.
 - [x] T1.2 Signup and login with BCrypt and JWT.
 - [x] T1.3 Workspace creation, invites, membership with roles.
-- [ ] T1.4 Integration tests for auth using Testcontainers.
+- [x] T1.4 Integration tests for auth using Testcontainers.
 
 ### Phase 2: Channels and messaging over REST (Week 2)
 - [ ] T2.1 Channels: create, join, list (public and private), DMs.
