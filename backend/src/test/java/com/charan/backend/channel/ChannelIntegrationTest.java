@@ -18,8 +18,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.http.*;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -129,6 +135,53 @@ class ChannelIntegrationTest extends BaseIntegrationTest {
         );
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    @DisplayName("POST /api/workspaces/{workspaceId}/channels - Concurrent creation with same name yields exactly 1 201 and 9 409s (0 500s)")
+    void createChannel_concurrentDuplicateCreations_oneCreatedOthersConflict() throws Exception {
+        String token = signupAndLogin("creator@example.com", "password123", "Creator");
+        WorkspaceResponse ws = createWorkspace(token, "Concurrent WS");
+
+        int threadCount = 10;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(threadCount);
+
+        List<Integer> statusCodes = Collections.synchronizedList(new ArrayList<>());
+        CreateChannelRequest request = new CreateChannelRequest("concurrent-chan", false);
+
+        for (int i = 0; i < threadCount; i++) {
+            executor.submit(() -> {
+                try {
+                    startLatch.await();
+                    ResponseEntity<String> response = restTemplate.exchange(
+                            "/api/workspaces/" + ws.id() + "/channels",
+                            HttpMethod.POST,
+                            new HttpEntity<>(request, authHeaders(token)),
+                            String.class
+                    );
+                    statusCodes.add(response.getStatusCode().value());
+                } catch (Exception e) {
+                    statusCodes.add(500);
+                } finally {
+                    doneLatch.countDown();
+                }
+            });
+        }
+
+        startLatch.countDown();
+        boolean completed = doneLatch.await(10, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertThat(completed).isTrue();
+        long count201 = statusCodes.stream().filter(s -> s == 201).count();
+        long count409 = statusCodes.stream().filter(s -> s == 409).count();
+        long count500 = statusCodes.stream().filter(s -> s == 500).count();
+
+        assertThat(count201).isEqualTo(1);
+        assertThat(count409).isEqualTo(9);
+        assertThat(count500).isEqualTo(0);
     }
 
     @Test
@@ -333,8 +386,8 @@ class ChannelIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST /api/workspaces/{workspaceId}/channels/{channelId}/members - Caller not in channel returns 403 Forbidden")
-    void addMember_callerNotInChannel_returns403() {
+    @DisplayName("POST /api/workspaces/{workspaceId}/channels/{channelId}/members - Caller not in private channel returns 404 Not Found")
+    void addMember_callerNotInPrivateChannel_returns404() {
         String aliceToken = signupAndLogin("alice@example.com", "password123", "Alice");
         UserResponse bob = signupAndReturnUser("bob@example.com", "password123", "Bob");
         String bobToken = login("bob@example.com", "password123");
@@ -346,7 +399,9 @@ class ChannelIntegrationTest extends BaseIntegrationTest {
 
         ChannelResponse privateChannel = createChannel(aliceToken, ws.id(), "leadership", true);
 
-        // Bob (not in leadership channel) attempts to add Charlie
+        // Bob (not in private leadership channel) attempts to add Charlie.
+        // In T2.3, this returns 404 (NOT_FOUND) instead of 403 to prevent unauthorized workspace
+        // members from detecting whether a private channel with this ID exists.
         AddChannelMemberRequest request = new AddChannelMemberRequest(charlie.id());
         ResponseEntity<String> response = restTemplate.exchange(
                 "/api/workspaces/" + ws.id() + "/channels/" + privateChannel.id() + "/members",
@@ -355,6 +410,33 @@ class ChannelIntegrationTest extends BaseIntegrationTest {
                 String.class
         );
 
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("POST /api/workspaces/{workspaceId}/channels/{channelId}/members - Caller not in public channel returns 403 Forbidden")
+    void addMember_callerNotInPublicChannel_returns403() {
+        String aliceToken = signupAndLogin("alice@example.com", "password123", "Alice");
+        UserResponse bob = signupAndReturnUser("bob@example.com", "password123", "Bob");
+        String bobToken = login("bob@example.com", "password123");
+        UserResponse charlie = signupAndReturnUser("charlie@example.com", "password123", "Charlie");
+
+        WorkspaceResponse ws = createWorkspace(aliceToken, "Workspace A");
+        joinUserToWorkspace(ws.id(), bob.id());
+        joinUserToWorkspace(ws.id(), charlie.id());
+
+        ChannelResponse publicChannel = createChannel(aliceToken, ws.id(), "general-discussion", false);
+
+        // Bob (in workspace, but has not joined publicChannel) attempts to add Charlie
+        AddChannelMemberRequest request = new AddChannelMemberRequest(charlie.id());
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/workspaces/" + ws.id() + "/channels/" + publicChannel.id() + "/members",
+                HttpMethod.POST,
+                new HttpEntity<>(request, authHeaders(bobToken)),
+                String.class
+        );
+
+        // For public channels, existence is known, but caller must join before adding members
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
