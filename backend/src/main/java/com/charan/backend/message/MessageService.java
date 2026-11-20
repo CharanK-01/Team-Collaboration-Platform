@@ -1,13 +1,9 @@
 package com.charan.backend.message;
 
-import com.charan.backend.channel.Channel;
-import com.charan.backend.channel.ChannelMemberRepository;
+import com.charan.backend.channel.ChannelAccessService;
 import com.charan.backend.channel.ChannelRepository;
-import com.charan.backend.channel.ChannelType;
 import com.charan.backend.user.User;
 import com.charan.backend.user.UserRepository;
-import com.charan.backend.workspace.WorkspaceMemberRepository;
-import com.charan.backend.workspace.WorkspaceRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,28 +17,23 @@ import java.util.stream.Collectors;
 
 /**
  * Service handling message sending and cursor-paginated history fetching.
+ * Delegates channel access checks to ChannelAccessService.
  */
 @Service
 public class MessageService {
 
     private final MessageRepository messageRepository;
     private final ChannelRepository channelRepository;
-    private final ChannelMemberRepository channelMemberRepository;
-    private final WorkspaceRepository workspaceRepository;
-    private final WorkspaceMemberRepository workspaceMemberRepository;
+    private final ChannelAccessService channelAccessService;
     private final UserRepository userRepository;
 
     public MessageService(MessageRepository messageRepository,
                           ChannelRepository channelRepository,
-                          ChannelMemberRepository channelMemberRepository,
-                          WorkspaceRepository workspaceRepository,
-                          WorkspaceMemberRepository workspaceMemberRepository,
+                          ChannelAccessService channelAccessService,
                           UserRepository userRepository) {
         this.messageRepository = messageRepository;
         this.channelRepository = channelRepository;
-        this.channelMemberRepository = channelMemberRepository;
-        this.workspaceRepository = workspaceRepository;
-        this.workspaceMemberRepository = workspaceMemberRepository;
+        this.channelAccessService = channelAccessService;
         this.userRepository = userRepository;
     }
 
@@ -52,7 +43,7 @@ public class MessageService {
      */
     @Transactional
     public MessageResponse send(Long callerId, Long workspaceId, Long channelId, SendMessageRequest request) {
-        resolveChannel(callerId, workspaceId, channelId);
+        channelAccessService.resolveChannelForMessage(callerId, workspaceId, channelId);
 
         String body = request.content().trim();
         if (body.isBlank()) {
@@ -82,7 +73,7 @@ public class MessageService {
     @Transactional(readOnly = true)
     public MessagePageResponse fetchHistory(Long callerId, Long workspaceId, Long channelId,
                                             int limit, Long before) {
-        resolveChannel(callerId, workspaceId, channelId);
+        channelAccessService.resolveChannelForMessage(callerId, workspaceId, channelId);
 
         int fetchSize = limit + 1; // fetch limit + 1 to check if another page exists
 
@@ -111,35 +102,6 @@ public class MessageService {
         Long nextCursor = hasMore && !page.isEmpty() ? page.get(page.size() - 1).getId() : null;
 
         return new MessagePageResponse(responses, nextCursor);
-    }
-
-    /**
-     * Enforces workspace membership and channel access rules.
-     */
-    private Channel resolveChannel(Long callerId, Long workspaceId, Long channelId) {
-        if (!workspaceRepository.existsById(workspaceId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Workspace not found");
-        }
-        if (!workspaceMemberRepository.existsByIdWorkspaceIdAndIdUserId(workspaceId, callerId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a member of this workspace");
-        }
-        Channel channel = channelRepository.findByIdAndWorkspaceId(channelId, workspaceId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Channel not found"));
-
-        boolean isMember = channelMemberRepository.existsByIdChannelIdAndIdUserId(channelId, callerId);
-
-        if (channel.getType() == ChannelType.PRIVATE || channel.getType() == ChannelType.DM) {
-            if (!isMember) {
-                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Channel not found");
-            }
-        } else {
-            if (!isMember) {
-                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                        "You must join this channel before you can send or read messages");
-            }
-        }
-
-        return channel;
     }
 
     private MessageResponse toResponse(Message m, SenderInfo sender) {

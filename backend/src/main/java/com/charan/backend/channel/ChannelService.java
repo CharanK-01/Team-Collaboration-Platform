@@ -4,7 +4,7 @@ import com.charan.backend.auth.UserResponse;
 import com.charan.backend.user.User;
 import com.charan.backend.user.UserRepository;
 import com.charan.backend.workspace.WorkspaceMemberRepository;
-import com.charan.backend.workspace.WorkspaceRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,29 +18,30 @@ public class ChannelService {
 
     private final ChannelRepository channelRepository;
     private final ChannelMemberRepository channelMemberRepository;
-    private final WorkspaceRepository workspaceRepository;
     private final WorkspaceMemberRepository workspaceMemberRepository;
     private final UserRepository userRepository;
+    private final ChannelAccessService channelAccessService;
 
     public ChannelService(ChannelRepository channelRepository,
                           ChannelMemberRepository channelMemberRepository,
-                          WorkspaceRepository workspaceRepository,
                           WorkspaceMemberRepository workspaceMemberRepository,
-                          UserRepository userRepository) {
+                          UserRepository userRepository,
+                          ChannelAccessService channelAccessService) {
         this.channelRepository = channelRepository;
         this.channelMemberRepository = channelMemberRepository;
-        this.workspaceRepository = workspaceRepository;
         this.workspaceMemberRepository = workspaceMemberRepository;
         this.userRepository = userRepository;
+        this.channelAccessService = channelAccessService;
     }
 
     /**
      * Creates a public or private channel in the given workspace.
      * The creator is automatically joined as a channel member.
+     * Catches DataIntegrityViolationException on concurrent duplicate names and returns 409 Conflict.
      */
     @Transactional
     public ChannelResponse createChannel(Long userId, Long workspaceId, CreateChannelRequest request) {
-        validateWorkspaceMembership(workspaceId, userId);
+        channelAccessService.validateWorkspaceMembership(workspaceId, userId);
 
         String name = request.name().trim().toLowerCase();
         if (channelRepository.existsByWorkspaceIdAndNameIgnoreCase(workspaceId, name)) {
@@ -49,7 +50,11 @@ public class ChannelService {
 
         ChannelType type = Boolean.TRUE.equals(request.isPrivate()) ? ChannelType.PRIVATE : ChannelType.PUBLIC;
         Channel channel = new Channel(workspaceId, name, type);
-        channel = channelRepository.save(channel);
+        try {
+            channel = channelRepository.saveAndFlush(channel);
+        } catch (DataIntegrityViolationException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Channel name already exists in this workspace");
+        }
 
         channelMemberRepository.insertMemberIfNotExists(channel.getId(), userId);
 
@@ -63,7 +68,7 @@ public class ChannelService {
      */
     @Transactional(readOnly = true)
     public List<ChannelResponse> listChannels(Long userId, Long workspaceId) {
-        validateWorkspaceMembership(workspaceId, userId);
+        channelAccessService.validateWorkspaceMembership(workspaceId, userId);
 
         List<Channel> channels = channelRepository.findVisibleChannelsForUser(workspaceId, userId);
         Set<Long> joinedChannelIds = channelMemberRepository.findJoinedChannelIdsByUserId(userId);
@@ -80,21 +85,10 @@ public class ChannelService {
      */
     @Transactional
     public ChannelResponse joinChannel(Long userId, Long workspaceId, Long channelId) {
-        validateWorkspaceMembership(workspaceId, userId);
-
-        Channel channel = channelRepository.findByIdAndWorkspaceId(channelId, workspaceId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Channel not found"));
-
-        if (channel.getType() == ChannelType.DM) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Channel not found");
-        }
+        Channel channel = channelAccessService.resolveChannelForJoin(userId, workspaceId, channelId);
 
         if (channel.getType() == ChannelType.PRIVATE) {
-            boolean alreadyMember = channelMemberRepository.existsByIdChannelIdAndIdUserId(channelId, userId);
-            if (!alreadyMember) {
-                // Return 404 so private channel existence is not leaked to unauthorized users
-                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Channel not found");
-            }
+            // Already a member (resolveChannelForJoin ensures this or throws 404)
             return toChannelResponse(channel, true);
         }
 
@@ -104,23 +98,13 @@ public class ChannelService {
     }
 
     /**
-     * Adds a workspace member to a private channel.
+     * Adds a workspace member to a channel.
      * Caller must already be a member of the channel.
+     * If the channel is private and the caller is not in it, returns 404 to prevent leaking existence.
      */
     @Transactional
     public ChannelResponse addMemberToChannel(Long callerId, Long workspaceId, Long channelId, AddChannelMemberRequest request) {
-        validateWorkspaceMembership(workspaceId, callerId);
-
-        Channel channel = channelRepository.findByIdAndWorkspaceId(channelId, workspaceId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Channel not found"));
-
-        if (channel.getType() == ChannelType.DM) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Channel not found");
-        }
-
-        if (!channelMemberRepository.existsByIdChannelIdAndIdUserId(channelId, callerId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Caller is not a member of this channel");
-        }
+        Channel channel = channelAccessService.resolveChannelForAddMember(callerId, workspaceId, channelId);
 
         if (!workspaceMemberRepository.existsByIdWorkspaceIdAndIdUserId(workspaceId, request.userId())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Target user is not a member of this workspace");
@@ -136,7 +120,7 @@ public class ChannelService {
      */
     @Transactional
     public DmChannelResponse getOrCreateDm(Long callerId, Long workspaceId, CreateDmRequest request) {
-        validateWorkspaceMembership(workspaceId, callerId);
+        channelAccessService.validateWorkspaceMembership(workspaceId, callerId);
 
         if (callerId.equals(request.userId())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot create a direct message channel with yourself");
@@ -171,7 +155,7 @@ public class ChannelService {
      */
     @Transactional(readOnly = true)
     public List<DmChannelResponse> listDms(Long callerId, Long workspaceId) {
-        validateWorkspaceMembership(workspaceId, callerId);
+        channelAccessService.validateWorkspaceMembership(workspaceId, callerId);
 
         List<Channel> dms = channelRepository.findDmsForUser(workspaceId, callerId);
 
@@ -190,15 +174,6 @@ public class ChannelService {
 
             return new DmChannelResponse(dm.getId(), workspaceId, ChannelType.DM, otherResponse, dm.getCreatedAt());
         }).toList();
-    }
-
-    private void validateWorkspaceMembership(Long workspaceId, Long userId) {
-        if (!workspaceRepository.existsById(workspaceId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Workspace not found");
-        }
-        if (!workspaceMemberRepository.existsByIdWorkspaceIdAndIdUserId(workspaceId, userId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not a member of this workspace");
-        }
     }
 
     private ChannelResponse toChannelResponse(Channel channel, boolean joined) {
