@@ -3,9 +3,9 @@
 Update this file at the end of each task.
 
 ## Current status
-- Current phase: Phase 2 (Channels and messaging over REST)
-- Last completed task: T2.3 (Permission checks (only members read or post))
-- Next task: T2.4 (Tests for each endpoint. Done when a full chat works through REST alone.)
+- Current phase: Phase 3 (Real-time)
+- Last completed task: T2.4 (Tests for each endpoint; full chat works through REST alone)
+- Next task: T3.1 (WebSockets: Spring WebSocket + STOMP, authenticated with JWT)
 
 ## Decisions made
 - Project: Slack-like team collaboration platform with AI features
@@ -45,7 +45,28 @@ Update this file at the end of each task.
 - Content is validated before trimming, so a message with 4000 characters plus trailing spaces is rejected with 400.
 - Sends to the same channel are serialized by a row lock on the channel (PESSIMISTIC_WRITE), so one channel can only process one send at a time. This is fine at demo scale. Alternative: a per-channel counter or sequence.
 
-## Session history
+## REST API summary
+
+| Method | Path | Status |
+|--------|------|--------|
+| POST | /api/auth/signup | 201 |
+| POST | /api/auth/login | 200 |
+| GET | /api/users/me | 200 |
+| GET | /health | 200 |
+| POST | /api/workspaces | 201 |
+| GET | /api/workspaces | 200 |
+| GET | /api/workspaces/{id}/members | 200 |
+| POST | /api/workspaces/{id}/invites | 201 |
+| POST | /api/invites/{token}/accept | 200 |
+| POST | /api/workspaces/{wid}/channels | 201 |
+| GET | /api/workspaces/{wid}/channels | 200 |
+| POST | /api/workspaces/{wid}/channels/{cid}/join | 200 |
+| POST | /api/workspaces/{wid}/channels/{cid}/members | 200 (or 404 for private) |
+| POST | /api/workspaces/{wid}/dms | 200 |
+| GET | /api/workspaces/{wid}/dms | 200 |
+| POST | /api/workspaces/{wid}/channels/{cid}/messages | 201 |
+| GET | /api/workspaces/{wid}/channels/{cid}/messages | 200 |
+
 - 2026-11-16: Phase 0 done (T0.1 to T0.5); T1.1 schema migration done; T1.2A signup done and pushed
 - 2026-11-17: T1.2B login and JWT code written; fixed a duplicate UserController class; paused because Docker was not running. Switching to Antigravity to continue.
 - 2026-11-18: T1.2B completed. UserController.java was missing from the earlier commit; created it. All 5 auth tests passed: login returns token, /api/users/me works with valid token (200 + correct email), no token → 401, wrong password → 401, tampered JWT payload → 401.
@@ -54,3 +75,4 @@ Update this file at the end of each task.
 - 2026-11-19: T2.1 completed. Added Flyway V3 migration (`V3__channels_and_dms.sql`), channel and DM domain entities, repositories, service, and controllers (`ChannelController`, `DmController`). Created `ChannelIntegrationTest` with 18 comprehensive tests covering public/private creation, validation, case-insensitive uniqueness, visibility scoping, idempotent joins, private channel existence hiding (404), member invitations, and race-free DM find-or-create using canonical pair keys. All 47 integration tests pass via `.\mvnw test`.
 - 2026-11-19: T2.2 completed. Added Flyway V4 migration (idx_messages_channel_id_id_desc), message entity, repository, service, and controller with cursor-based pagination (before, limit) and batch sender loading. Resolved concurrent sequence race condition via PESSIMISTIC_WRITE channel row locking. Created MessageIntegrationTest with 23 integration tests covering send validation, workspace/channel access controls, existence hiding for private channels/DMs, boundary conditions, gapless pagination, and 20-thread concurrent send verification. Total 70/70 integration tests green.
 - 2026-11-20: T2.3 completed. Centralized access checks in ChannelAccessService as the single source of truth for workspace and channel authorization. Resolved channel creation race via saveAndFlush() and DataIntegrityViolationException mapping to 409 Conflict. Fixed private channel member addition to return 404 (not 403) for callers not in the private channel, preventing existence leakage. Added 10-thread channel creation concurrency test (exactly 1 201, 9 409s, 0 500s) and 48-case ChannelPermissionMatrixTest parameterized living documentation suite. Total 120/120 integration tests green.
+- 2026-11-20: T2.4 completed. Tests for each endpoint, full chat flow through REST alone, 123 integration tests pass.
