@@ -158,7 +158,7 @@ PostgreSQL (results)
 - [x] T2.4 Tests for each endpoint. Done when a full chat works through REST alone.
 
 ### Phase 3: Real-time (Weeks 3 to 4)
-- [ ] T3.1 WebSockets (Spring WebSocket + STOMP) authenticated with JWT.
+- [x] T3.1 WebSockets (Spring WebSocket + STOMP) authenticated with JWT.
 - [ ] T3.2 Persist first, then broadcast to channel subscribers.
 - [ ] T3.3 Minimal React client: login, channel list, message view, composer.
 - [ ] T3.4 Presence and typing indicators (Redis heartbeats with TTL).

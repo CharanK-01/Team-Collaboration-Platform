@@ -4,10 +4,12 @@ Update this file at the end of each task.
 
 ## Current status
 - Current phase: Phase 3 (Real-time)
-- Last completed task: T2.4 (Tests for each endpoint; full chat works through REST alone)
-- Next task: T3.1 (WebSockets: Spring WebSocket + STOMP, authenticated with JWT)
+- Last completed task: T3.1 (WebSocket + STOMP authenticated with JWT)
+- Next task: T3.2 (Persist first, then broadcast to channel subscribers)
 
 ## Decisions made
+- WebSocket: STOMP endpoint /ws (native WebSocket, no SockJS), in-memory simple broker for /topic and /queue, application prefix /app. The /ws handshake is permitted without authentication because browsers cannot set an Authorization header on a WebSocket handshake.
+- WebSocket auth: the JWT is validated on the STOMP CONNECT frame by a ChannelInterceptor (WebSocketConfig), using the same JwtDecoder bean as the REST API. The session principal is set to the sub claim (user id). Missing, malformed, tampered or expired tokens throw and the client gets an ERROR frame. Tests verify the principal on the server side through a test-only /app/whoami controller.
 - Project: Slack-like team collaboration platform with AI features
 - Backend: Java 21, Spring Boot 4.1.2; frontend: React (later)
 - Database: PostgreSQL 16 (pgvector image), schema owned by Flyway; Redis for pub/sub, presence, streams
@@ -36,6 +38,11 @@ Update this file at the end of each task.
 - Set a real `JWT_SECRET` before the live demo (T6.4)
 
 ## Known limitations
+- The WebSocket token is checked only at CONNECT, so an open connection stays alive after the token expires.
+- WebSocket allowed origins are a wildcard for development and must be restricted for production.
+- The in-memory STOMP broker only works on a single server instance; a Redis-backed relay is needed to scale out (planned with T3.4).
+- The expired-token rejection case is not covered by a test, because building an expired JWT with the app's key was not practical.
+- Subscriptions are not yet authorized per channel; any authenticated user could subscribe to any /topic destination. This is closed in T3.2.
 - Pending-invite check is check-then-insert, so two simultaneous invites to the same email can both pass (fix idea: a partial unique index on `(workspace_id, email) WHERE accepted_at IS NULL` plus catching the data integrity violation as 409 Conflict).
 - Accepting the same invite from two simultaneous requests can return a 500 instead of 409 (no duplicate membership results because of the composite primary key `(workspace_id, user_id)`, but unhandled database constraint exceptions bubble up as 500).
 - Inviting with role OWNER returns 403 Forbidden; 400 Bad Request would be more accurate because OWNER is an invalid client payload for an invite, not a valid request blocked by authorization.
@@ -67,12 +74,16 @@ Update this file at the end of each task.
 | POST | /api/workspaces/{wid}/channels/{cid}/messages | 201 |
 | GET | /api/workspaces/{wid}/channels/{cid}/messages | 200 |
 
+Access rules: not a workspace member gets 403. A channel not in the workspace gets 404. A private channel or DM the caller is not in gets 404, so existence is not leaked. A public channel the caller has not joined gets 403 for reading and sending until they join.
+
+## Session history
 - 2026-11-16: Phase 0 done (T0.1 to T0.5); T1.1 schema migration done; T1.2A signup done and pushed
 - 2026-11-17: T1.2B login and JWT code written; fixed a duplicate UserController class; paused because Docker was not running. Switching to Antigravity to continue.
-- 2026-11-18: T1.2B completed. UserController.java was missing from the earlier commit; created it. All 5 auth tests passed: login returns token, /api/users/me works with valid token (200 + correct email), no token → 401, wrong password → 401, tampered JWT payload → 401.
+- 2026-11-18: T1.2B completed. UserController.java was missing from the earlier commit; created it. All 5 auth tests passed: login returns token, /api/users/me works with valid token (200 + correct email), no token -> 401, wrong password -> 401, tampered JWT payload -> 401.
 - 2026-11-18: T1.3 completed. Added Flyway V2 migration, workspace domain entities, repositories, services, controllers, and scripts/test-workspaces.ps1. All 16 comprehensive tests passed: workspace creation, non-member 404, invite role OWNER rejection (403), OWNER invites ADMIN (201), wrong email acceptance (403), right email acceptance (200), duplicate acceptance rejection (400), duplicate pending invite conflict (409), member re-invite conflict (409), MEMBER invite restriction (403), ADMIN invites ADMIN restriction (403), ADMIN invites MEMBER success (201), members list verification, and workspace isolation filtering.
-- 2026-11-19: T1.4 completed. Configured Testcontainers 2.0.5 with Spring Boot 4.1.2 managed dependencies and throwaway PostgreSQL 16 container (`pgvector/pgvector:pg16`). Created `BaseIntegrationTest`, `FlywayMigrationIntegrationTest` (2/2), `AuthIntegrationTest` (9/9), and `WorkspaceIntegrationTest` (18/18). All 29 integration tests pass via `.\mvnw test`.
+- 2026-11-19: T1.4 completed. Configured Testcontainers 2.0.5 with Spring Boot 4.1.2 managed dependencies and throwaway PostgreSQL 16 container (`pgvector/pgvector:pg16`). Created `BaseIntegrationTest`, `FlywayMigrationIntegrationTest` (1/1), `AuthIntegrationTest` (9/9), and `WorkspaceIntegrationTest` (18/18). All 29 integration tests pass via `.\mvnw test`.
 - 2026-11-19: T2.1 completed. Added Flyway V3 migration (`V3__channels_and_dms.sql`), channel and DM domain entities, repositories, service, and controllers (`ChannelController`, `DmController`). Created `ChannelIntegrationTest` with 18 comprehensive tests covering public/private creation, validation, case-insensitive uniqueness, visibility scoping, idempotent joins, private channel existence hiding (404), member invitations, and race-free DM find-or-create using canonical pair keys. All 47 integration tests pass via `.\mvnw test`.
 - 2026-11-19: T2.2 completed. Added Flyway V4 migration (idx_messages_channel_id_id_desc), message entity, repository, service, and controller with cursor-based pagination (before, limit) and batch sender loading. Resolved concurrent sequence race condition via PESSIMISTIC_WRITE channel row locking. Created MessageIntegrationTest with 23 integration tests covering send validation, workspace/channel access controls, existence hiding for private channels/DMs, boundary conditions, gapless pagination, and 20-thread concurrent send verification. Total 70/70 integration tests green.
 - 2026-11-20: T2.3 completed. Centralized access checks in ChannelAccessService as the single source of truth for workspace and channel authorization. Resolved channel creation race via saveAndFlush() and DataIntegrityViolationException mapping to 409 Conflict. Fixed private channel member addition to return 404 (not 403) for callers not in the private channel, preventing existence leakage. Added 10-thread channel creation concurrency test (exactly 1 201, 9 409s, 0 500s) and 48-case ChannelPermissionMatrixTest parameterized living documentation suite. Total 120/120 integration tests green.
-- 2026-11-20: T2.4 completed. Tests for each endpoint, full chat flow through REST alone, 123 integration tests pass.
+- 2026-11-20: T2.4 completed. Added tests for the two uncovered endpoints (WorkspaceListTest for GET /api/workspaces, HealthControllerTest for /health); every other endpoint was already covered. Added ChatFlowEndToEndTest, one scenario through REST only with the real invite flow: three users sign up, Alice creates a workspace with a public and a private channel, invites Bob and he accepts, Bob joins the public channel, 5 messages are paged with limit=2 (newest first, no gaps), Bob replies, Alice adds Bob to the private channel, a DM is created twice with the same id, and an outsider gets 403 everywhere. Total 123/123 integration tests green. Phase 2 complete.
+- 2026-11-20: T3.1 completed. Added WebSocketConfig (STOMP /ws, simple broker, JWT interceptor on CONNECT) and opened /ws in SecurityConfig. Added WebSocketConnectIntegrationTest (5 tests): valid token connects and the server-side principal equals the user id (round trip through a test-only /app/whoami controller); missing header, "Token abc", "Bearer " with no token and a tampered signature are all rejected. Mutation check: with validation disabled, 4 rejection tests failed and the valid-token test errored with a null principal. Total 128/128 integration tests green.
