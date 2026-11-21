@@ -8,7 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
-
+import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -30,20 +30,15 @@ public class MessageService {
     private final ApplicationEventPublisher eventPublisher;
 
     public MessageService(MessageRepository messageRepository,
-                          ChannelRepository channelRepository,
-                          ChannelAccessService channelAccessService,
-                          UserRepository userRepository,
-                          ApplicationEventPublisher eventPublisher) {
+            ChannelRepository channelRepository,
+            ChannelAccessService channelAccessService,
+            UserRepository userRepository,
+            ApplicationEventPublisher eventPublisher) {
         this.messageRepository = messageRepository;
         this.channelRepository = channelRepository;
         this.channelAccessService = channelAccessService;
         this.userRepository = userRepository;
         this.eventPublisher = eventPublisher;
-    }
-        this.messageRepository = messageRepository;
-        this.channelRepository = channelRepository;
-        this.channelAccessService = channelAccessService;
-        this.userRepository = userRepository;
     }
 
     /**
@@ -62,7 +57,8 @@ public class MessageService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "content must be at most 4000 characters");
         }
 
-        // Lock the channel row with PESSIMISTIC_WRITE to serialize seq generation per channel
+        // Lock the channel row with PESSIMISTIC_WRITE to serialize seq generation per
+        // channel
         channelRepository.findByIdForUpdate(channelId);
 
         Long nextSeq = messageRepository.findMaxSeqByChannelId(channelId) + 1;
@@ -84,7 +80,7 @@ public class MessageService {
      */
     @Transactional(readOnly = true)
     public MessagePageResponse fetchHistory(Long callerId, Long workspaceId, Long channelId,
-                                            int limit, Long before) {
+            int limit, Long before) {
         channelAccessService.resolveChannelForMessage(callerId, workspaceId, channelId);
 
         int fetchSize = limit + 1; // fetch limit + 1 to check if another page exists
@@ -122,7 +118,6 @@ public class MessageService {
                 m.getChannelId(),
                 m.getBody(),
                 sender,
-                m.getCreatedAt()
-        );
+                m.getCreatedAt());
     }
 }
