@@ -5,7 +5,7 @@ import com.charan.backend.channel.ChannelRepository;
 import com.charan.backend.user.User;
 import com.charan.backend.user.UserRepository;
 import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -27,10 +27,19 @@ public class MessageService {
     private final ChannelAccessService channelAccessService;
     private final UserRepository userRepository;
 
+    private final ApplicationEventPublisher eventPublisher;
+
     public MessageService(MessageRepository messageRepository,
                           ChannelRepository channelRepository,
                           ChannelAccessService channelAccessService,
-                          UserRepository userRepository) {
+                          UserRepository userRepository,
+                          ApplicationEventPublisher eventPublisher) {
+        this.messageRepository = messageRepository;
+        this.channelRepository = channelRepository;
+        this.channelAccessService = channelAccessService;
+        this.userRepository = userRepository;
+        this.eventPublisher = eventPublisher;
+    }
         this.messageRepository = messageRepository;
         this.channelRepository = channelRepository;
         this.channelAccessService = channelAccessService;
@@ -63,7 +72,10 @@ public class MessageService {
         User sender = userRepository.findById(callerId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Sender not found"));
 
-        return toResponse(message, new SenderInfo(sender.getId(), sender.getDisplayName()));
+        MessageResponse response = toResponse(message, new SenderInfo(sender.getId(), sender.getDisplayName()));
+        // Publish the event so the AFTER_COMMIT listener can broadcast
+        eventPublisher.publishEvent(new MessageCreatedEvent(response));
+        return response;
     }
 
     /**
