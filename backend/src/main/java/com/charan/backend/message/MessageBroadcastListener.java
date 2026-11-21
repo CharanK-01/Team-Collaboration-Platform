@@ -24,11 +24,9 @@ public class MessageBroadcastListener {
      */
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onMessageCreated(MessageCreatedEvent event) {
-        log.warn("DEBUGTMP broadcast firing for message {}", event.message().id());
         MessageResponse m = event.message();
         try {
             messagingTemplate.convertAndSend("/topic/channels." + m.channelId(), m);
-            log.warn("DEBUGTMP broadcast sent to /topic/channels.{}", m.channelId());
         } catch (Exception e) {
             // The message is already saved; a broadcast failure must not fail the sender.
             // Never log the message content.

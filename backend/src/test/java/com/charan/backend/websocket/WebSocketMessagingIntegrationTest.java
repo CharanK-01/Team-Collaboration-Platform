@@ -20,6 +20,7 @@ import com.charan.backend.workspace.WorkspaceMemberRepository;
 import com.charan.backend.workspace.WorkspaceRepository;
 import com.charan.backend.workspace.WorkspaceResponse;
 import com.charan.backend.workspace.WorkspaceRole;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,21 +30,24 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
-import org.springframework.messaging.converter.StringMessageConverter;
+import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
 import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.util.MimeTypeUtils;
 import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
 import tools.jackson.databind.ObjectMapper;
 
 import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -77,11 +81,17 @@ public class WebSocketMessagingIntegrationTest extends BaseIntegrationTest {
     private long aliceId, bobId, carolId;
     private long wsId, publicCh, privateCh;
 
-    /** One STOMP session plus a queue of everything it receives (as JSON text). */
+    /**
+     * One STOMP session, a queue of everything it receives (as JSON text), and any
+     * errors.
+     */
     private static class Client {
         StompSession session;
         final BlockingQueue<String> received = new LinkedBlockingQueue<>();
+        final List<String> problems = new CopyOnWriteArrayList<>();
     }
+
+    private final List<Client> clients = new CopyOnWriteArrayList<>();
 
     @BeforeEach
     void setUp() {
@@ -114,6 +124,16 @@ public class WebSocketMessagingIntegrationTest extends BaseIntegrationTest {
         publicCh = createChannel(aliceToken, "general", false);
         privateCh = createChannel(aliceToken, "secret", true);
         joinChannel(bobToken, publicCh); // Bob joins the public channel; Carol does not
+    }
+
+    @AfterEach
+    void closeClients() {
+        for (Client c : clients) {
+            if (c.session != null && c.session.isConnected()) {
+                c.session.disconnect();
+            }
+        }
+        clients.clear();
     }
 
     // ---------------------------------------------------------------- tests
@@ -164,7 +184,7 @@ public class WebSocketMessagingIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    void d_privateChannel_dmAndOutsiders_cannotSubscribe() throws Exception {
+    void d_privateChannel_andOutsiders_cannotSubscribe() throws Exception {
         Client bob = connect(bobToken); // workspace member, not in the private channel
         Client dave = connect(daveToken); // not in the workspace at all
         subscribe(bob, "/topic/channels." + privateCh);
@@ -180,14 +200,13 @@ public class WebSocketMessagingIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    void e_arbitraryDestinations_areRejected_butUserQueueStillWorks() throws Exception {
+    void e_arbitraryDestination_isRejected() throws Exception {
         Client bob = connect(bobToken);
         subscribe(bob, "/topic/anything");
-        sendStomp(bob, "/app/whoami", "");
-        // /topic/anything must not receive; the /user/queue/whoami reply path is
-        // exercised
-        // by WebSocketConnectIntegrationTest, so here we only assert the topic stays
-        // silent.
+
+        rest(aliceToken, "/api/workspaces/" + wsId + "/channels/" + publicCh + "/messages",
+                HttpMethod.POST, new SendMessageRequest("hello"), MessageResponse.class);
+
         assertNothingArrives(bob);
     }
 
@@ -257,7 +276,8 @@ public class WebSocketMessagingIntegrationTest extends BaseIntegrationTest {
 
     private Client connect(String token) throws Exception {
         WebSocketStompClient stomp = new WebSocketStompClient(new StandardWebSocketClient());
-        stomp.setMessageConverter(new StringMessageConverter());
+        // No custom converter: the default passes frame bodies through as raw bytes.
+        // The helpers below read and write UTF-8 JSON text themselves.
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
         scheduler.initialize();
         stomp.setTaskScheduler(scheduler);
@@ -268,47 +288,55 @@ public class WebSocketMessagingIntegrationTest extends BaseIntegrationTest {
         c.session = stomp.connectAsync("ws://localhost:" + port + "/ws",
                 new WebSocketHttpHeaders(), headers, new StompSessionHandlerAdapter() {
                     @Override
-                    public void handleException(StompSession s,
-                            org.springframework.messaging.simp.stomp.StompCommand cmd,
+                    public void handleException(StompSession s, StompCommand command,
                             StompHeaders h, byte[] payload, Throwable ex) {
+                        c.problems.add("exception: " + ex);
                     }
 
                     @Override
                     public void handleTransportError(StompSession s, Throwable ex) {
+                        c.problems.add("transport: " + ex);
                     }
                 }).get(5, TimeUnit.SECONDS);
+        clients.add(c);
         return c;
     }
 
-    private void subscribe(Client c, String destination) {
+    private void subscribe(Client c, String destination) throws InterruptedException {
         c.session.subscribe(destination, new StompFrameHandler() {
             @Override
             public Type getPayloadType(StompHeaders headers) {
-                return String.class;
+                return byte[].class;
             }
 
             @Override
             public void handleFrame(StompHeaders headers, Object payload) {
-                c.received.add((String) payload);
+                c.received.add(new String((byte[]) payload, StandardCharsets.UTF_8));
             }
         });
+        // Give the server a moment to register (or reject) the subscription, because a
+        // message published before that would simply be lost.
+        Thread.sleep(500);
     }
 
     private void sendStomp(Client c, String destination, String jsonBody) {
         StompHeaders headers = new StompHeaders();
         headers.setDestination(destination);
-        headers.setContentType(org.springframework.util.MimeTypeUtils.APPLICATION_JSON);
+        headers.setContentType(MimeTypeUtils.APPLICATION_JSON);
         try {
-            c.session.send(headers, jsonBody);
-        } catch (Exception ignored) {
-            // A rejected frame can close the session; that is an acceptable outcome for the
-            // negative tests, which assert on what was (not) persisted or delivered.
+            c.session.send(headers, jsonBody.getBytes(StandardCharsets.UTF_8));
+        } catch (RuntimeException e) {
+            // A frame the server rejects can close the session first, which is fine for the
+            // negative tests. A failure while still connected is a real bug and must show.
+            if (c.session.isConnected()) {
+                throw e;
+            }
         }
     }
 
     private String poll(Client c, int seconds) throws InterruptedException {
         String s = c.received.poll(seconds, TimeUnit.SECONDS);
-        assertNotNull(s, "expected a frame within " + seconds + "s");
+        assertNotNull(s, "expected a frame within " + seconds + "s; client problems: " + c.problems);
         return s;
     }
 
@@ -332,7 +360,8 @@ public class WebSocketMessagingIntegrationTest extends BaseIntegrationTest {
         HttpHeaders h = new HttpHeaders();
         h.setBearerAuth(token);
         ResponseEntity<T> r = restTemplate.exchange(path, method, new HttpEntity<>(body, h), type);
-        assertTrue(r.getStatusCode().is2xxSuccessful(), "REST call failed: " + path + " -> " + r.getStatusCode());
+        assertTrue(r.getStatusCode().is2xxSuccessful(),
+                "REST call failed: " + path + " -> " + r.getStatusCode());
         return r.getBody();
     }
 
@@ -350,7 +379,8 @@ public class WebSocketMessagingIntegrationTest extends BaseIntegrationTest {
     private List<Long> restHistoryIds(String token, long channelId) throws Exception {
         HttpHeaders h = new HttpHeaders();
         h.setBearerAuth(token);
-        String json = restTemplate.exchange("/api/workspaces/" + wsId + "/channels/" + channelId + "/messages",
+        String json = restTemplate.exchange(
+                "/api/workspaces/" + wsId + "/channels/" + channelId + "/messages",
                 HttpMethod.GET, new HttpEntity<>(h), String.class).getBody();
         List<Long> ids = new ArrayList<>();
         mapper.readTree(json).get("messages").forEach(n -> ids.add(n.get("id").asLong()));

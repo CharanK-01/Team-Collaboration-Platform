@@ -52,6 +52,7 @@ public class ChannelSecurityInterceptor implements ChannelInterceptor {
     }
 
     private void authorizeSubscribe(StompHeaderAccessor accessor) {
+
         String destination = accessor.getDestination();
         if (destination == null) {
             throw new MessagingException(DENIED);
@@ -86,6 +87,7 @@ public class ChannelSecurityInterceptor implements ChannelInterceptor {
     }
 
     private void authorizeSend(StompHeaderAccessor accessor) {
+
         String destination = accessor.getDestination();
         if (destination == null || !destination.startsWith("/app/")) {
             log.warn("Send to unsupported destination {} rejected", destination);
